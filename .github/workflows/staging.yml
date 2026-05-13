@@ -1,0 +1,15 @@
+name: staging deployment
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+    deploy:
+        runs-on: ubuntu-latest
+        steps:
+            - name: slack start
+              uses: slackapi/slack-github-action@v3.0.3
+              with:
+                
