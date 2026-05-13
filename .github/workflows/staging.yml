@@ -1,15 +1,57 @@
-name: staging deployment
+name: staging workflow
 
-on:
+on: 
   push:
     branches:
       - main
 
 jobs:
-    deploy:
-        runs-on: ubuntu-latest
-        steps:
-            - name: slack start
-              uses: slackapi/slack-github-action@v3.0.3
-              with:
-                
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Post a message in a channel
+        uses: slackapi/slack-github-action@v3.0.3
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            text: "🚀 Staging Pipeline wurde soeben gestartet von ${{github.actor}}. Pipeline : ${{github.workflow}}"
+
+      - name: checkout
+        uses: actions/checkout@v6
+
+      - name: ssh setup
+        run: | 
+          mkdir -p ~/.ssh
+          echo "${{secrets.SSH_PRIVATE_KEY}}" > ~/.ssh/mein_schlüssel
+          chmod 400 ~/.ssh/mein_schlüssel
+          ssh-keyscan -H ${{secrets.EC2_IP_STAGING}} >> ~/.ssh/known_hosts  
+
+      - name: install nginx
+        run: |
+          ssh -i ~/.ssh/mein_schlüssel ubuntu@${{secrets.EC2_IP_STAGING}} "sudo apt update"
+          ssh -i ~/.ssh/mein_schlüssel ubuntu@${{secrets.EC2_IP_STAGING}} "sudo apt install nginx -y"
+
+      - name: deploy website
+        run: |
+          scp -i ~/.ssh/mein_schlüssel frontend/index.html ubuntu@${{secrets.EC2_IP_STAGING}}:/home/ubuntu/index.html
+          ssh -i ~/.ssh/mein_schlüssel ubuntu@${{secrets.EC2_IP_STAGING}} "sudo cp /home/ubuntu/index.html /var/www/html/index.html"
+
+      - name: Post a message in a channel bei Erfolg!
+        if: ${{ success() }}
+        uses: slackapi/slack-github-action@v3.0.3
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            text: "✅ Staging Deployment erfolgreich !"       
+
+      - name: Post a message in a channel bei Fehlschlag!
+        if: ${{ failure() }}
+        uses: slackapi/slack-github-action@v3.0.3
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            text: "❌ Staging Deployment nicht erfolgreich !!!"
