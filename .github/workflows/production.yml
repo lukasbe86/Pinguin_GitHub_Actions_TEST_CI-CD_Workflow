@@ -1,0 +1,64 @@
+name: produktions workflow
+
+on: 
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
+
+      - name: Post a message in a channel (Start)
+        uses: slackapi/slack-github-action@v3.0.3
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            text: "🚀 Prod Pipeline wurde soeben gestartet von ${{github.actor}}. Pipeline : ${{github.workflow}}"
+
+      - name: ssh setup
+        run: | 
+          mkdir -p ~/.ssh
+          echo "${{secrets.SSH_PRIVATE_KEY}}" > ~/.ssh/mein_schlüssel
+          chmod 400 ~/.ssh/mein_schlüssel
+          
+          for ip in ${{secrets.EC2_IP_PROD}}; do
+            ssh-keyscan -H $ip >> ~/.ssh/known_hosts
+          done  
+
+      - name: install nginx
+        run: |
+          for ip in ${{secrets.EC2_IP_PROD}}; do
+            echo "Installiere Nginx auf $ip..."
+            ssh -i ~/.ssh/mein_schlüssel ubuntu@$ip "sudo apt update && sudo apt install nginx -y"
+          done
+
+      - name: deploy website
+        run: |
+          for ip in ${{secrets.EC2_IP_PROD}}; do
+            echo "Deploye auf $ip..."
+            scp -i ~/.ssh/mein_schlüssel frontend/index.html ubuntu@$ip:/home/ubuntu/index.html
+            ssh -i ~/.ssh/mein_schlüssel ubuntu@$ip "sudo cp /home/ubuntu/index.html /var/www/html/index.html"
+          done
+
+      - name: Post a message in a channel bei Erfolg
+        if: ${{ success() }}
+        uses: slackapi/slack-github-action@v3.0.3
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            text: "✅ Prod Deployment erfolgreich auf alle Instanzen!"      
+
+      - name: Post a message in a channel bei Fehlschlag
+        if: ${{ failure() }}
+        uses: slackapi/slack-github-action@v3.0.3
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            text: "❌ Prod Deployment nicht erfolgreich !!!"
